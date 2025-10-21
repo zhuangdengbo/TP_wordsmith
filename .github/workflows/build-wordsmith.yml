@@ -1,0 +1,95 @@
+name: Build and Push Wordsmith Images
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  build-and-push:
+    if: contains(github.event.pull_request.labels.*.name, 'build-images')
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Build and push Web image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./web
+        file: ./web/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:latest
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:${{ github.sha }}
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:pr-${{ github.event.number }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push Words image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./words
+        file: ./words/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:latest
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:${{ github.sha }}
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:pr-${{ github.event.number }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push DB image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./db
+        file: ./db/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:latest
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:${{ github.sha }}
+          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:pr-${{ github.event.number }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Summary
+      run: |
+        echo "## 🐳 Images Built and Pushed Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Web Service" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Words Service" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Database Service" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY

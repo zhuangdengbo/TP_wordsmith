@@ -1,0 +1,39 @@
+services:
+  db:
+    build: ./db
+    container_name: wordsmith-db-${INSTANCE}
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data_${INSTANCE}:/var/lib/postgresql/data
+    networks:
+      - wordsmith-network-${INSTANCE}
+
+  words:
+    build: ./words
+    container_name: wordsmith-words-${INSTANCE}
+    depends_on:
+      - db
+    ports:
+      - "${WORDS_PORT:-8080}:8080"
+    networks:
+      - wordsmith-network-${INSTANCE}
+
+  web:
+    build: ./web
+    container_name: wordsmith-web-${INSTANCE}
+    depends_on:
+      - words
+    ports:
+      - "${WEB_PORT:-80}:80"
+    networks:
+      - wordsmith-network-${INSTANCE}
+
+volumes:
+  db_data_${INSTANCE}:
+
+networks:
+  wordsmith-network-${INSTANCE}:
+    driver: bridge
