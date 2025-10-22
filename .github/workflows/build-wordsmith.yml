@@ -3,11 +3,35 @@ name: Build and Push Wordsmith Images
 on:
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+# Repository Variables (可以在GitHub仓库设置中配置)
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME || 'wordsmith' }}
+  BUILD_VERSION: ${{ vars.BUILD_VERSION || '1.0.0' }}
+  REGISTRY_URL: ${{ vars.REGISTRY_URL || 'docker.io' }}
 
 jobs:
   build-and-push:
     if: contains(github.event.pull_request.labels.*.name, 'build-images')
     runs-on: ubuntu-latest
+    
+    # Job级别的环境变量
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      NOTIFICATION_WEBHOOK: ${{ secrets.NOTIFICATION_WEBHOOK }}
+      BUILD_ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+      IMAGE_TAG_SUFFIX: ${{ vars.IMAGE_TAG_SUFFIX || '' }}
     
     steps:
     - name: Checkout code
@@ -19,22 +43,25 @@ jobs:
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ env.DOCKER_PASSWORD }}
+        registry: ${{ env.REGISTRY_URL }}
         
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: |
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db
         tags: |
           type=ref,event=branch
           type=ref,event=pr
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ env.BUILD_VERSION }},enable={{is_default_branch}}
+          type=raw,value=${{ env.BUILD_ENVIRONMENT }}-${{ env.BUILD_VERSION }},enable={{is_default_branch}}
           
     - name: Build and push Web image
       uses: docker/build-push-action@v5
@@ -43,9 +70,11 @@ jobs:
         file: ./web/Dockerfile
         push: true
         tags: |
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:latest
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:${{ github.sha }}
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-web:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web:latest
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web:${{ github.sha }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web:${{ env.BUILD_VERSION }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-web:${{ env.BUILD_ENVIRONMENT }}-${{ env.BUILD_VERSION }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         
@@ -56,9 +85,11 @@ jobs:
         file: ./words/Dockerfile
         push: true
         tags: |
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:latest
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:${{ github.sha }}
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-words:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words:latest
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words:${{ github.sha }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words:${{ env.BUILD_VERSION }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-words:${{ env.BUILD_ENVIRONMENT }}-${{ env.BUILD_VERSION }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         
@@ -69,27 +100,63 @@ jobs:
         file: ./db/Dockerfile
         push: true
         tags: |
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:latest
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:${{ github.sha }}
-          ${{ secrets.DOCKER_USERNAME }}/wordsmith-db:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db:latest
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db:${{ github.sha }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db:pr-${{ github.event.number }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db:${{ env.BUILD_VERSION }}
+          ${{ env.DOCKER_USERNAME }}/${{ env.PROJECT_NAME }}-db:${{ env.BUILD_ENVIRONMENT }}-${{ env.BUILD_VERSION }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         
+    - name: Send notification
+      if: always()
+      env:
+        WEBHOOK_URL: ${{ env.NOTIFICATION_WEBHOOK }}
+        BUILD_STATUS: ${{ job.status }}
+        STEP_NAME: "Build and Push Images"
+      run: |
+        if [ -n "$WEBHOOK_URL" ]; then
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"🚀 $STEP_NAME completed with status: $BUILD_STATUS\",
+              \"project\": \"${{ env.PROJECT_NAME }}\",
+              \"version\": \"${{ env.BUILD_VERSION }}\",
+              \"environment\": \"${{ env.BUILD_ENVIRONMENT }}\"
+            }"
+        fi
+        
     - name: Summary
+      env:
+        PROJECT_NAME: ${{ env.PROJECT_NAME }}
+        BUILD_VERSION: ${{ env.BUILD_VERSION }}
+        BUILD_ENVIRONMENT: ${{ env.BUILD_ENVIRONMENT }}
+        DOCKER_USERNAME: ${{ env.DOCKER_USERNAME }}
       run: |
         echo "## 🐳 Images Built and Pushed Successfully!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Project Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Project**: $PROJECT_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: $BUILD_VERSION" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: $BUILD_ENVIRONMENT" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Web Service" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:latest\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-web:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-web:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-web:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-web:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-web:$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-web:$BUILD_ENVIRONMENT-$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Words Service" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:latest\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-words:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-words:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-words:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-words:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-words:$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-words:$BUILD_ENVIRONMENT-$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Database Service" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:latest\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${{ secrets.DOCKER_USERNAME }}/wordsmith-db:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-db:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-db:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-db:pr-${{ github.event.number }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-db:$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`$DOCKER_USERNAME/$PROJECT_NAME-db:$BUILD_ENVIRONMENT-$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
