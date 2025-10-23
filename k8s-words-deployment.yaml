@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordsmith-words
+  labels:
+    app: wordsmith-words
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordsmith-words
+  template:
+    metadata:
+      labels:
+        app: wordsmith-words
+    spec:
+      containers:
+      - name: words
+        image: jpetazzo/wordsmith-words:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: wordsmith-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: wordsmith-config
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: wordsmith-config
+              key: DB_NAME
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
