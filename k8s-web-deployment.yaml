@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordsmith-web
+  labels:
+    app: wordsmith-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordsmith-web
+  template:
+    metadata:
+      labels:
+        app: wordsmith-web
+    spec:
+      containers:
+      - name: web
+        image: jpetazzo/wordsmith-web:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"

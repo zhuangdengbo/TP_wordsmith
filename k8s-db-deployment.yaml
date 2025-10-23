@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordsmith-db
+  labels:
+    app: wordsmith-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordsmith-db
+  template:
+    metadata:
+      labels:
+        app: wordsmith-db
+    spec:
+      containers:
+      - name: db
+        image: jpetazzo/wordsmith-db:latest
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: "trust"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
